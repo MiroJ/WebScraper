@@ -7,10 +7,9 @@ namespace WebScraper
         static void Main(string[] args)
         {
             var scraper = new ScraperMtitc();
-            scraper.Scrape();
+            scraper.Start();
 
             Console.ReadKey();
         }
-
     }
 }
