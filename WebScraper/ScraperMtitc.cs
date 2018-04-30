@@ -116,35 +116,38 @@ namespace WebScraper
         {
             foreach (var elem in node.ChildNodes)
             {
-                if (elem.OriginalName == "table")
+                if (elem.HasChildNodes)
                 {
-                    // Get photos and details of each stamp
-                    AddStampsFromTable(elem);
-
+                    // Go one more level deeper
+                    ScrapeContent(elem);
                 }
-                else if (elem.OriginalName == "em")
+                else // reached the last level
                 {
-                    // Get the emphasized text
-                    AddComment(elem);
-                }
-                else
-                {
-                    if (IsYearRow(elem.InnerHtml))
+                    if (elem.OriginalName == "table")
                     {
-                        CloseSeries();
+                        // Get photos and details of each stamp
+                        AddStampsFromTable(elem);
 
-                        ExtractYear(elem.InnerHtml);
+                    }
+                    else if (elem.OriginalName == "em")
+                    {
+                        // Get the emphasized text
+                        AddComment(elem);
                     }
                     else
                     {
-                        // Get the emphasized text
-                        AddTitleAndDescription(elem);
-                    }
-                }
+                        if (IsYearRow(elem.InnerHtml))
+                        {
+                            CloseSeries();
 
-                if (elem.HasChildNodes)
-                {
-                    ScrapeContent(elem);
+                            ExtractYear(elem.InnerHtml);
+                        }
+                        else
+                        {
+                            // Add the text to the description
+                            AddTitleAndDescription(elem);
+                        }
+                    }
                 }
 
                 // Set the year, even if already set
@@ -219,7 +222,11 @@ namespace WebScraper
         {
             var fullText = elem.InnerText.Trim();
 
-            if (fullText.Length >= 25 && IsTitleRow(fullText.Substring(0, 6)))
+            if (fullText.IndexOf("). Надпечатки - ") > 10 && fullText.IndexOf("). Надпечатки - ") < 25)
+            {
+                _currentSeries.Title = "Надпечатки";
+            }
+            else if (fullText.Length >= 25 && IsTitleRow(fullText.Substring(0, 6)))
             {
                 var idx1 = fullText.IndexOf(@"&quot;");
                 var idx2 = fullText.IndexOf(@"&quot;", idx1 + 2);
@@ -235,9 +242,9 @@ namespace WebScraper
             if (elem.Attributes["align"] != null && elem.Attributes["align"].Value == "justify")
             {
                 descr = string.IsNullOrEmpty(descr) ? elem.InnerText : descr + "/n" + elem.InnerText;
-            }
 
-            _currentSeries.Details += descr;
+                _currentSeries.Details = string.IsNullOrEmpty(_currentSeries.Details) ? descr : _currentSeries.Details + "\n" + descr;
+            }
         }
 
         private void CloseSeries()
@@ -329,6 +336,8 @@ namespace WebScraper
             var idx = fullText.IndexOf("(");
 
             var day = int.Parse(fullText.Substring(idx + 1, 2).Trim());
+
+            _currentSeries.Date = new DateTime(year, month, day);
         }
 
         private bool IsYearRow(string text)
