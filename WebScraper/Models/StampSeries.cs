@@ -7,15 +7,13 @@ namespace WebScraper
     {
         public string Title { get; set; }
 
-        public int Year { get; set; }
-
         public string Details { get; set; }
 
         public string Comment { get; set; }
 
-        public string Issue { get; set; }
-
         public DateTime Date { get; set; }
+
+        public string Quantities { get; internal set; }
 
         public List<Stamp> Stamps { get; set; }
     }

@@ -12,13 +12,13 @@ namespace WebScraper
     {
         #region - Declarations -
 
-        string _startUrl = @"https://www.mtitc.government.bg/archive/page.php?category=144&id=1434";
+        string _startUrl = @"https://www.mtitc.government.bg/bg/category/63/katalog-na-bulgarskite-poshtenski-marki-1879-2005-g";
 
         StampSeries _currentSeries = new StampSeries {
             Stamps = new List<Stamp>()
         };
 
-        int _currentYear;
+        int _currentYear = 0;
 
         List<StampSeries> database = new List<StampSeries>();
 
@@ -35,34 +35,45 @@ namespace WebScraper
             // Get all main URIs
             var uriList = GetMainPageList(homePageDom, homeUri);
 
-            // Go to each page, ...
-            foreach (var uri in uriList)
+            try
             {
-                // ... load the first page, ...
-                var page = GetDocumentNode(uri);
-
-                // ... get the rest of the URIs, ...
-                var subUriList = GetSubPageList(page, uri);
-
-                // ... scrape the fisrt page, ...
-                var n = page.SelectSingleNode("//td[@class='text11']");
-                ScrapeContent(n);
-
-                // ... and read the sub-pages.
-                foreach (var subUri in subUriList)
+                // Go to each page, ...
+                foreach (var uri in uriList)
                 {
-                    page = GetDocumentNode(subUri);
-                    n = page.SelectSingleNode("//td[@class='text11']");
+                    // ... load the first page, ...
+                    var page = GetDocumentNode(uri);
 
+                    // ... get the rest of the URIs, ...
+                    var subUriList = GetSubPageList(page, uri);
+
+                    // ... scrape the fisrt page, ...
+                    var n = page.SelectSingleNode("//td[@class='text11']");
                     ScrapeContent(n);
+
+                    // ... and read the sub-pages.
+                    foreach (var subUri in subUriList)
+                    {
+                        page = GetDocumentNode(subUri);
+                        n = page.SelectSingleNode("//td[@class='text11']");
+
+                        ScrapeContent(n);
+                    }
+
+                    var json = JsonConvert.SerializeObject(database);
+                    Console.WriteLine(json);
+                    Console.ReadKey();
+
+                    return;
                 }
 
+            }
+            catch
+            {
                 var json = JsonConvert.SerializeObject(database);
                 Console.WriteLine(json);
                 Console.ReadKey();
-
-                return;
             }
+
         }
 
         #endregion
@@ -81,13 +92,13 @@ namespace WebScraper
 
         private List<Uri> GetMainPageList(HtmlNode mainPageDom, Uri uri)
         {
-            var nodes = mainPageDom.SelectNodes("//*[@class='text11']/p/a/strong/em");
+            var links = mainPageDom.SelectNodes("//div[@class='field-items']/div/p/a/strong/em");
 
             var uris = new List<Uri>();
 
-            foreach (var n in nodes)
+            foreach (var l in links)
             {
-                var tmp = n.ParentNode.ParentNode.Attributes["href"].Value;
+                var tmp = l.ParentNode.ParentNode.Attributes["href"].Value;
                 uris.Add(new Uri(uri, HttpUtility.HtmlDecode(tmp)));
             }
 
@@ -116,42 +127,54 @@ namespace WebScraper
         {
             foreach (var elem in node.ChildNodes)
             {
-                if (elem.HasChildNodes)
+                NormalizeStupidity(elem);
+
+                if (elem.OriginalName == "table")
+                {
+                    // Get photos and details of each stamp
+                    AddStampsFromTable(elem);
+
+                }
+                else if (elem.OriginalName == "em")
+                {
+                    // Get the emphasized text
+                    AddComment(elem);
+                }
+                else if (elem.HasChildNodes && elem.FirstChild.OriginalName == "sup")
+                {
+                    _currentSeries.Details += " " + elem.InnerText;
+                }
+                else if (elem.HasChildNodes)
                 {
                     // Go one more level deeper
                     ScrapeContent(elem);
                 }
                 else // reached the last level
                 {
-                    if (elem.OriginalName == "table")
+                    if (elem.InnerText.StartsWith("Тиражи:"))
                     {
-                        // Get photos and details of each stamp
-                        AddStampsFromTable(elem);
-
+                        AddQuantities(elem);
                     }
-                    else if (elem.OriginalName == "em")
+                    else if (elem.InnerText.Length > 25)
                     {
-                        // Get the emphasized text
-                        AddComment(elem);
-                    }
-                    else
-                    {
-                        if (IsYearRow(elem.InnerHtml))
-                        {
-                            CloseSeries();
-
-                            ExtractYear(elem.InnerHtml);
-                        }
-                        else
-                        {
-                            // Add the text to the description
-                            AddTitleAndDescription(elem);
-                        }
+                        // Add the text to the description
+                        AddTitleAndDescription(elem);
                     }
                 }
+            }
+        }
 
-                // Set the year, even if already set
-                _currentSeries.Year = _currentYear;
+        private void AddQuantities(HtmlNode elem)
+        {
+            _currentSeries.Quantities = elem.InnerText;
+        }
+
+        private void NormalizeStupidity(HtmlNode elem)
+        {
+            if (elem.HasChildNodes && elem.Descendants("sup").Count() > 0)
+            {
+                elem.InnerHtml = elem.InnerText
+                                     .Replace("1/2", " 1/2");
             }
         }
 
@@ -222,34 +245,75 @@ namespace WebScraper
         {
             var fullText = elem.InnerText.Trim();
 
-            if (fullText.IndexOf("). Надпечатки - ") > 10 && fullText.IndexOf("). Надпечатки - ") < 25)
+            if (fullText.IndexOf("). Надпечатк") > 10 && fullText.IndexOf("). Надпечатк") < 25) // Надпечатки
             {
+                AddDate(fullText);
+
                 _currentSeries.Title = "Надпечатки";
+                _currentSeries.Details = string.IsNullOrEmpty(_currentSeries.Details) ? fullText : _currentSeries.Details + "\n" + fullText;
             }
-            else if (fullText.Length >= 25 && IsTitleRow(fullText.Substring(0, 6)))
+            else if (IsTitleRow(fullText.Substring(0, 4))) // starts with a year
             {
-                var idx1 = fullText.IndexOf(@"&quot;");
-                var idx2 = fullText.IndexOf(@"&quot;", idx1 + 2);
+                AddDate(fullText);
 
-                _currentSeries.Title = fullText.Substring(idx1 + 6, idx2 - idx1 - 6);
+                var c = @"&quot;";
+                var offset = 6;
 
-                ExtractDate(fullText);
+                var idx1 = fullText.IndexOf(c);
 
-                fullText = fullText.Substring(idx2 + 7).Trim();
+                if (idx1 == -1)
+                {
+                    c = @". ";
+                    offset = 2;
+                    idx1 = fullText.IndexOf(c) + 2;
+                }
+
+                var idx2 = fullText.IndexOf(c, idx1 + 2);
+                if (idx2 > -1 && fullText.Substring(idx2 - 1, 2) == "г.")
+                {
+                    idx2 = fullText.IndexOf(c, idx2 + 2);
+                }
+
+                _currentSeries.Title = fullText.Substring(idx1 + offset, idx2 - idx1 - offset);
+                _currentSeries.Details = string.IsNullOrEmpty(_currentSeries.Details) ? fullText : _currentSeries.Details + "\n" + fullText;
+            }
+        }
+
+        private void AddDate(string fullText)
+        {
+            var idx = fullText.IndexOf("(");
+            int day, month, year;
+
+            if (IsDoubleYear(fullText.Replace(" ", "").Substring(0, 9)))
+            {
+                day = 1;
+                month = 1;
+            }
+            else
+            {
+                day = int.Parse(fullText.Substring(idx + 1, 2).Trim()); // digits inside brackets
+                month = GetMonthFromBulgarianMonth(fullText); // Bulgarian word for a month
             }
 
-            var descr = "";
-            if (elem.Attributes["align"] != null && elem.Attributes["align"].Value == "justify")
-            {
-                descr = string.IsNullOrEmpty(descr) ? elem.InnerText : descr + "/n" + elem.InnerText;
+            year = int.Parse(fullText.Substring(0, 4)); // first 4 characters
 
-                _currentSeries.Details = string.IsNullOrEmpty(_currentSeries.Details) ? descr : _currentSeries.Details + "\n" + descr;
+            if (_currentYear > 0 && _currentYear != year)
+            {
+                CloseSeries();
+            }
+
+            _currentSeries.Date = new DateTime(year, month, day);
+
+            if (_currentYear == 0)
+            {
+                _currentYear = year;
             }
         }
 
         private void CloseSeries()
         {
-            if (_currentSeries.Year > 0)
+            // Verify if data
+            if (string.IsNullOrEmpty(_currentSeries.Title) == false)
             {
                 database.Add(_currentSeries);
 
@@ -257,6 +321,8 @@ namespace WebScraper
                 {
                     Stamps = new List<Stamp>()
                 };
+
+                _currentYear = 0;
             }
         }
 
@@ -322,38 +388,20 @@ namespace WebScraper
             return extraNote.Trim();
         }
 
-        private void ExtractYear(string text)
+        private bool IsTitleRow(string text)
         {
-            _currentYear = int.Parse(text.Replace(" ", "").Replace("г.", ""));
-            _currentSeries.Year = _currentYear;
-        }
-
-        private void ExtractDate(string fullText)
-        {
-            var year = int.Parse(fullText.Substring(0, 4));
-            var month = GetMonthFromBulgarianMonth(fullText);
-
-            var idx = fullText.IndexOf("(");
-
-            var day = int.Parse(fullText.Substring(idx + 1, 2).Trim());
-
-            _currentSeries.Date = new DateTime(year, month, day);
-        }
-
-        private bool IsYearRow(string text)
-        {
-            var pattern = @"1\s[8-9]\s[0-9]\s[0-9]\sг.";
+            var pattern = @"[0-9]{4}";
 
             Regex rgx = new Regex(pattern, RegexOptions.IgnoreCase);
 
             MatchCollection matches = rgx.Matches(text);
 
-            return matches.Count == 1 && matches[0].Index < 2;
+            return matches.Count > 0;
         }
 
-        private bool IsTitleRow(string text)
+        private bool IsDoubleYear(string text)
         {
-            var pattern = @"[0-9]{4}";
+            var pattern = @"[0-9]{4}-[0-9]{4}";
 
             Regex rgx = new Regex(pattern, RegexOptions.IgnoreCase);
 
