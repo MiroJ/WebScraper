@@ -25,6 +25,7 @@ namespace WebScraper
         int _currentYear = 0;
 
         List<StampSeries> database = new List<StampSeries>();
+        private string _exportFolder = @"D:\Temp\Catalog\";
 
         #endregion
 
@@ -56,23 +57,6 @@ namespace WebScraper
             // Go to each page, ...
             foreach (var url in urlList)
             {
-                Console.WriteLine($"Scraping page '{url}'");
-
-                // ... load the first page, ...
-                var page = GetDocumentNode(url);
-
-                // ... scrape the fisrt page, ...
-                var n = page.SelectSingleNode("//td[@class='text11']");
-                try
-                {
-                    ScrapeContent(n);
-                    Console.WriteLine($"Completed.");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error: '{ex.Message}'");
-                }
-
                 var idx = url.IndexOf("id=") + 3;
                 var part = url.Substring(idx);
 
@@ -86,7 +70,33 @@ namespace WebScraper
                 }
 
                 var fileName = $"Stamps-{part}.json";
-                SaveDataToToJsonFile(fileName);
+
+                if (File.Exists($"{_exportFolder}{fileName}"))
+                {
+                    Console.WriteLine($"Skipping page '{url}'");
+                }
+                else
+                {
+                    Console.WriteLine($"Scraping page '{url}'");
+
+                    // ... load the first page, ...
+                    var page = GetDocumentNode(url);
+
+                    // ... scrape the fisrt page, ...
+                    var n = page.SelectSingleNode("//td[@class='text11']");
+                    try
+                    {
+                        ScrapeContent(n);
+                        Console.WriteLine($"Completed.");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error: '{ex.Message}'");
+                    }
+
+                    SaveDataToToJsonFile(fileName);
+                }
+
             }
 
             Console.WriteLine($"Data written in {urlList.Count} files");
@@ -396,7 +406,7 @@ namespace WebScraper
 
         private void SaveDataToToJsonFile(string fileName)
         {
-            using (StreamWriter file = File.CreateText($@"D:\Temp\Catalog\{fileName}"))
+            using (StreamWriter file = File.CreateText($"{_exportFolder}{fileName}"))
             {
                 JsonSerializer serializer = new JsonSerializer();
                 //serialize object directly into file stream
