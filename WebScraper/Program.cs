@@ -8,8 +8,6 @@ namespace WebScraper
         {
             var scraper = new ScraperMtitc();
             scraper.Start();
-
-            Console.ReadKey();
         }
     }
 }

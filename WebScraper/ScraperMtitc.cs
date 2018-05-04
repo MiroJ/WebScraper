@@ -15,6 +15,7 @@ namespace WebScraper
         #region - Declarations -
 
         string _startUrl = @"https://www.mtitc.government.bg/bg/category/63/katalog-na-bulgarskite-poshtenski-marki-1879-2005-g";
+        string _fileWithURLs = @"D:\Temp\Catalog\URLs.json";
 
         StampSeries _currentSeries = new StampSeries
         {
@@ -25,8 +26,6 @@ namespace WebScraper
 
         List<StampSeries> database = new List<StampSeries>();
 
-        static int fileIndex = 6;
-
         #endregion
 
         #region - Public methods -
@@ -35,114 +34,156 @@ namespace WebScraper
         {
             // Get initial page
             var homeUri = new Uri(_startUrl);
-            var homePageDom = GetDocumentNode(homeUri);
+            var homePageDom = GetDocumentNode(_startUrl);
 
-            // Get all main URIs
-            var uriList = GetMainPageList(homePageDom, homeUri);
+            // Get all main URLs
+            List<string> urlList;
+            if (File.Exists(_fileWithURLs))
+            {
+                urlList = ReadListOfUrls();
+            }
+            else
+            {
+                urlList = GetListOfPages(_startUrl);
+                // Save for next time
+                SaveListOfUrls(urlList);
+            }
 
+            Console.WriteLine();
             Console.WriteLine("Starting...");
-            Console.WriteLine($"Got {uriList.Count()} main pages.");
-
-            uriList.Clear();
-            uriList.Add(new Uri(@"https://www.mtitc.government.bg/archive/page.php?category=144&id=1863"));
+            Console.WriteLine($"Needs to go to {urlList.Count()} pages.");
 
             // Go to each page, ...
-            foreach (var uri in uriList)
+            foreach (var url in urlList)
             {
-                fileIndex += 1;
-
-                Console.WriteLine($"Scraping main page...");
+                Console.WriteLine($"Scraping page '{url}'");
 
                 // ... load the first page, ...
-                var page = GetDocumentNode(uri);
-
-                // ... get the rest of the URIs, ...
-                var subUriList = GetSubPageList(page, uri);
+                var page = GetDocumentNode(url);
 
                 // ... scrape the fisrt page, ...
                 var n = page.SelectSingleNode("//td[@class='text11']");
                 try
                 {
                     ScrapeContent(n);
+                    Console.WriteLine($"Completed.");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error in '{uri.AbsoluteUri}'");
+                    Console.WriteLine($"Error: '{ex.Message}'");
                 }
-                var i = 0;
-                // ... and read the sub-pages.
-                foreach (var subUri in subUriList)
+
+                var idx = url.IndexOf("id=") + 3;
+                var part = url.Substring(idx);
+
+                if (part.Contains("&page="))
                 {
-                    i += 1;
-                    Console.WriteLine($"Scraping page {i}/{subUriList.Count()} ...");
-
-                    page = GetDocumentNode(subUri);
-                    n = page.SelectSingleNode("//td[@class='text11']");
-
-                    try
-                    {
-                        ScrapeContent(n);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Error in '{subUri.AbsoluteUri}'");
-                    }
+                    part = part.Replace("&page=", "-");
+                }
+                else
+                {
+                    part += "-1";
                 }
 
-                Console.WriteLine($"Completed '{uri.AbsoluteUri}'");
-
-                WriteToJsonFile(fileIndex);
+                var fileName = $"Stamps-{part}.json";
+                SaveDataToToJsonFile(fileName);
             }
 
-            Console.WriteLine($"Data written in {fileIndex} files");
+            Console.WriteLine($"Data written in {urlList.Count} files");
             Console.WriteLine("Done!");
+
+            Console.WriteLine("Press any key to finish...");
+            Console.ReadKey();
+
+        }
+
+        public List<string> GetListOfPages(string startUrl)
+        {
+            // Get initial page
+            var homePageDom = GetDocumentNode(startUrl);
+
+            // Get all main URIs
+            var result = GetMainPageList(homePageDom, startUrl);
+
+            Console.WriteLine("Initial list:");
+            foreach (var item in result)
+            {
+                Console.WriteLine(item);
+            }
+
+            var urlSubList = new List<string>();
+
+            // Go to each page, ...
+            foreach (var url in result)
+            {
+                Console.WriteLine($"Searching {url}");
+
+                // ... load the first page, ...
+                var page = GetDocumentNode(url);
+
+                // ... get the rest of the URIs, ...
+                var tmp = GetSubPageList(page, url);
+                urlSubList.AddRange(tmp);
+
+                Console.WriteLine($"Found {tmp.Count}.");
+            }
+
+            result.AddRange(urlSubList);
+
+            result = result.OrderBy(x => x).ToList();
+
+            return result;
         }
 
         #endregion
 
         #region - Private Methods -
 
-        private HtmlNode GetDocumentNode(Uri uri)
+        private HtmlNode GetDocumentNode(string url)
         {
+            var uri = new Uri(url);
             var web = new HtmlWeb();
             var htmlDoc = web.Load(uri);
 
-            var node = htmlDoc.DocumentNode;
+            var result = htmlDoc.DocumentNode;
 
-            return node;
+            return result;
         }
 
-        private List<Uri> GetMainPageList(HtmlNode mainPageDom, Uri uri)
+        private List<string> GetMainPageList(HtmlNode mainPageDom, string url)
         {
+            var result = new List<string>();
+
+            var mainUri = new Uri(url);
+
             var links = mainPageDom.SelectNodes("//div[@class='field-items']/div/p/a/strong/em");
-
-            var uris = new List<Uri>();
-
             foreach (var l in links)
             {
                 var tmp = l.ParentNode.ParentNode.Attributes["href"].Value;
-                uris.Add(new Uri(uri, HttpUtility.HtmlDecode(tmp)));
+                var uri = new Uri(mainUri, HttpUtility.HtmlDecode(tmp));
+                result.Add(uri.AbsoluteUri);
             }
 
-            return uris;
+            return result;
         }
 
-        private List<Uri> GetSubPageList(HtmlNode node, Uri uri)
+        private List<string> GetSubPageList(HtmlNode node, string url)
         {
-            var uriList = new List<Uri>();
+            var result = new List<string>();
+
+            var mainUri = new Uri(url);
 
             var pages = node.SelectNodes("//*[@class='pageNav']");
-
             if (pages != null)
             {
                 foreach (var p in pages)
                 {
                     var tmp = p.Attributes["href"].Value;
-                    uriList.Add(new Uri(uri, HttpUtility.HtmlDecode(tmp)));
+                    result.Add(new Uri(mainUri, HttpUtility.HtmlDecode(tmp)).AbsoluteUri);
                 }
             }
 
-            return uriList;
+            return result;
         }
 
         private void ScrapeContent(HtmlNode node)
@@ -353,14 +394,31 @@ namespace WebScraper
             }
         }
 
-        private void WriteToJsonFile(int index)
+        private void SaveDataToToJsonFile(string fileName)
         {
-            using (StreamWriter file = File.CreateText($@"D:\Temp\Catalog\catalog-{index}.json"))
+            using (StreamWriter file = File.CreateText($@"D:\Temp\Catalog\{fileName}"))
             {
                 JsonSerializer serializer = new JsonSerializer();
                 //serialize object directly into file stream
                 serializer.Serialize(file, database);
             }
+        }
+
+        private void SaveListOfUrls(List<string> urls)
+        {
+            using (StreamWriter file = File.CreateText(_fileWithURLs))
+            {
+                JsonSerializer serializer = new JsonSerializer();
+                //serialize object directly into file stream
+                serializer.Serialize(file, urls);
+            }
+        }
+        private List<string> ReadListOfUrls()
+        {
+            var bytesArray = File.ReadAllText(_fileWithURLs);
+            var urls = JsonConvert.DeserializeObject<List<string>>(bytesArray);
+
+            return urls;
         }
 
         #endregion
