@@ -87,6 +87,8 @@ namespace WebScraper
                     try
                     {
                         ScrapeContent(n);
+                        CloseSeries();
+
                         Console.WriteLine($"Completed.");
                     }
                     catch (Exception ex)
@@ -388,10 +390,10 @@ namespace WebScraper
             return true;
         }
 
-        private void CloseSeries()
+        private void CloseSeries(bool force = false)
         {
             // Verify if data
-            if (string.IsNullOrEmpty(_currentSeries.Title) == false)
+            if (string.IsNullOrEmpty(_currentSeries.Title) == false || force)
             {
                 database.Add(_currentSeries);
 
@@ -412,6 +414,8 @@ namespace WebScraper
                 //serialize object directly into file stream
                 serializer.Serialize(file, database);
             }
+
+            database.Clear();
         }
 
         private void SaveListOfUrls(List<string> urls)
