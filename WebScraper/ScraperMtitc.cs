@@ -54,6 +54,8 @@ namespace WebScraper
             Console.WriteLine("Starting...");
             Console.WriteLine($"Needs to go to {urlList.Count()} pages.");
 
+            var cnt = 0;
+
             // Go to each page, ...
             foreach (var url in urlList)
             {
@@ -77,12 +79,13 @@ namespace WebScraper
                 }
                 else
                 {
+                    cnt += 1;
                     Console.WriteLine($"Scraping page '{url}'");
 
-                    // ... load the first page, ...
+                    // ... load the page, ...
                     var page = GetDocumentNode(url);
 
-                    // ... scrape the fisrt page, ...
+                    // ... scrape it, ...
                     var n = page.SelectSingleNode("//td[@class='text11']");
                     try
                     {
@@ -96,12 +99,15 @@ namespace WebScraper
                         Console.WriteLine($"Error: '{ex.Message}'");
                     }
 
+                    // ... and save it to a separate JSON file.
                     SaveDataToToJsonFile(fileName);
+
+                    break;
                 }
 
             }
 
-            Console.WriteLine($"Data written in {urlList.Count} files");
+            Console.WriteLine($"Data written in {cnt} files (out of {urlList.Count}).");
             Console.WriteLine("Done!");
 
             Console.WriteLine("Press any key to finish...");
@@ -229,6 +235,9 @@ namespace WebScraper
                     if (elem.InnerText.StartsWith("Тиражи:"))
                     {
                         AddQuantities(elem);
+
+                        // Quantities are at the end so close the series
+                        CloseSeries();
                     }
                     else if (elem.InnerText.Length > 25)
                     {
@@ -258,47 +267,116 @@ namespace WebScraper
 
             foreach (var c in cells)
             {
-                var stamp = new Stamp();
-
-                // Get Id
-                var idNodes = c.Descendants("strong");
-                if (idNodes != null && idNodes.Count() > 0)
+                var cnt = c.Descendants("img").Count();
+                if (cnt > 1) // multiple stamps
                 {
-                    int.TryParse(idNodes.First().InnerText, out int tmp);
-                    stamp.Id = tmp;
+                    var urls = c.Descendants("a").Select(x => x.Attributes["href"].Value).ToList();
+                    var ids = c.Descendants("strong").Select(x => x.InnerText).ToList();
+                    var notes = new List<string>();
+
+                    foreach (var desc in c.Descendants())
+                    {
+                        if (desc.HasChildNodes == false)
+                        {
+                            var idx = -1;
+                            idx = idx == -1 ? desc.InnerText.IndexOf(" ст.") : idx;
+                            idx = idx == -1 ? desc.InnerText.IndexOf(" лв.") : idx;
+                            idx = idx == -1 ? desc.InnerText.IndexOf(" с.") : idx;
+                            idx = idx == -1 ? desc.InnerText.IndexOf(" фр.") : idx;
+
+                            if (idx > -1)
+                            {
+                                notes.Add(desc.InnerText);
+                            }
+                        }
+                    }
+                    for (int i = 0; i < cnt; i++)
+                    {
+                        var (value, extraNote) = GetStampValue(notes[i]);
+
+                        var s = new Stamp
+                        {
+                            Id = int.Parse(ids[i]),
+                            ImageUrl = urls[i],
+                            Value = value,
+                            ExtraNote = extraNote
+                        };
+
+                        result.Add(s);
+                    }
                 }
-
-                // Get photo URL
-                var photoUrls = c.Descendants("a");
-                if (photoUrls != null && photoUrls.Count() > 0)
+                else // single stamp
                 {
-                    stamp.ImageUrl = photoUrls.First().Attributes["href"].Value;
-                }
+                    var stamp = new Stamp();
 
-                // Get value and extra note
-                var valueInfo = GetStampValue(c);
-                if (valueInfo.Value > 0)
-                {
-                    values.Add(valueInfo);
-                }
+                    // Get Id
+                    var idNodes = c.Descendants("strong");
+                    if (idNodes != null && idNodes.Count() > 0)
+                    {
+                        int.TryParse(idNodes.First().InnerText, out int tmp);
+                        stamp.Id = tmp;
+                    }
 
-                // Store the info
-                if (stamp.Id > 0 && string.IsNullOrEmpty(stamp.ImageUrl) == false)
-                {
-                    result.Add(stamp);
+                    // Get photo URL
+                    var photoUrls = c.Descendants("a");
+                    if (photoUrls != null && photoUrls.Count() > 0)
+                    {
+                        stamp.ImageUrl = photoUrls.First().Attributes["href"].Value;
+                    }
+
+                    // Get value and extra note
+                    foreach (var item in c.ChildNodes)
+                    {
+                        var valueInfo = GetStampValue(item.InnerText);
+                        if (valueInfo.Value > 0)
+                        {
+                            values.Add(valueInfo);
+                            break;
+                        }
+                    }
+
+                    // Store the info
+                    if (stamp.Id > 0 && string.IsNullOrEmpty(stamp.ImageUrl) == false)
+                    {
+                        result.Add(stamp);
+                    }
                 }
             }
 
-            if (result.Count() > 0 && result.Count() == values.Count())
+            if (result.Count() > 0)
             {
-                for (int i = 0; i < result.Count(); i++)
+                if (result.Count() == values.Count())
                 {
-                    result[i].Value = values[i].Value;
-                    result[i].ExtraNote = values[i].Notes;
+                    for (int i = 0; i < result.Count(); i++)
+                    {
+                        result[i].Value = values[i].Value;
+                        result[i].ExtraNote = values[i].Notes;
+                    }
                 }
             }
+            else if (elem.Descendants("img").Count() > 0) // alternative arrangement
+            {
+                result = TryAlternativeTableArrangement(elem);
+            }
+
 
             _currentSeries.Stamps.AddRange(result);
+        }
+
+        private List<Stamp> TryAlternativeTableArrangement(HtmlNode elem)
+        {
+            var result = new List<Stamp>();
+            var img = elem.Descendants("img").Count();
+            var href = elem.Descendants("a").Count();
+
+            var cnt = img > href ? img : href;
+
+            for (int i = 0; i < cnt; i++)
+            {
+                result.Add(new Stamp());
+            }
+
+            return result;
         }
 
         private void AddTitleAndDescription(HtmlNode elem)
@@ -366,11 +444,6 @@ namespace WebScraper
             if (year < 1879 || year > 2005)
                 return false;
 
-            if (_currentYear > 0 && _currentYear != year)
-            {
-                CloseSeries();
-            }
-
             try
             {
                 day = day == 0 ? 1 : day;
@@ -390,10 +463,10 @@ namespace WebScraper
             return true;
         }
 
-        private void CloseSeries(bool force = false)
+        private void CloseSeries()
         {
             // Verify if data
-            if (string.IsNullOrEmpty(_currentSeries.Title) == false || force)
+            if (_currentSeries.HasData)
             {
                 database.Add(_currentSeries);
 
@@ -411,7 +484,6 @@ namespace WebScraper
             using (StreamWriter file = File.CreateText($"{_exportFolder}{fileName}"))
             {
                 JsonSerializer serializer = new JsonSerializer();
-                //serialize object directly into file stream
                 serializer.Serialize(file, database);
             }
 
@@ -423,7 +495,6 @@ namespace WebScraper
             using (StreamWriter file = File.CreateText(_fileWithURLs))
             {
                 JsonSerializer serializer = new JsonSerializer();
-                //serialize object directly into file stream
                 serializer.Serialize(file, urls);
             }
         }
@@ -448,48 +519,45 @@ namespace WebScraper
             }
         }
 
-        private (double Value, string Notes) GetStampValue(HtmlNode cell)
+        private (double Value, string Notes) GetStampValue(string innerText)
         {
-            var value = 0.0;
+            var value = -0.0;
             var extraNote = "";
 
-            foreach (var item in cell.ChildNodes)
+            var html = innerText.Trim();
+
+            var idx = -1;
+            idx = idx == -1 ? html.IndexOf(" ст.") : idx;
+            idx = idx == -1 ? html.IndexOf(" лв.") : idx;
+            idx = idx == -1 ? html.IndexOf(" с.") : idx;
+            idx = idx == -1 ? html.IndexOf(" фр.") : idx;
+
+            if (idx > -1)
             {
-                var html = item.InnerText.Trim();
+                var endIdx = html.IndexOf(" ", idx - 4 >= 0 ? idx - 4 : 0);
 
-                var idx = -1;
-                idx = idx == -1 ? html.IndexOf(" ст.") : idx;
-                idx = idx == -1 ? html.IndexOf(" лв.") : idx;
-                idx = idx == -1 ? html.IndexOf(" с.") : idx;
-                idx = idx == -1 ? html.IndexOf(" фр.") : idx;
-
-                if (idx > -1)
+                if (endIdx > -1)
                 {
-                    var endIdx = html.IndexOf(" ", idx - 4 >= 0 ? idx - 4 : 0);
+                    idx = idx - 4 >= 0 ? idx - 4 : 0;
+                    double.TryParse(html.Substring(idx, endIdx - idx), out value);
+                }
+                else
+                {
+                    double.TryParse(html.Substring(idx - 4), out value);
+                }
 
-                    if (endIdx > -1)
+                if (value > 0)
+                {
+                    endIdx = html.IndexOf(".");
+                    if (endIdx < html.Length - 1)
                     {
-                        idx = idx - 4 >= 0 ? idx - 4 : 0;
-                        double.TryParse(html.Substring(idx, endIdx - idx), out value);
+                        extraNote = html.Substring(endIdx + 1);
+                        extraNote = FixNotes(extraNote);
                     }
-                    else
-                    {
-                        double.TryParse(html.Substring(idx - 4), out value);
-                    }
 
-                    if (value > 0)
+                    if (html.Contains(" с.") || html.Contains(" ст."))
                     {
-                        endIdx = html.IndexOf(".");
-                        if (endIdx < html.Length - 1)
-                        {
-                            extraNote = html.Substring(endIdx + 1);
-                            extraNote = FixNotes(extraNote);
-                        }
-
-                        if (html.Contains(" с.") || html.Contains(" ст."))
-                        {
-                            value /= 100;
-                        }
+                        value /= 100;
                     }
                 }
             }
