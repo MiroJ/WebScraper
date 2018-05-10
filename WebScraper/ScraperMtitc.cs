@@ -258,6 +258,7 @@ namespace WebScraper
             _currentSeries.Comment = string.IsNullOrEmpty(_currentSeries.Comment) ? elem.InnerText : _currentSeries.Comment + "/n" + elem.InnerText;
         }
 
+        List<Stamp> incompleteStamps = null;
         private void AddStampsFromTable(HtmlNode elem)
         {
             var cells = elem.Descendants("td");
@@ -318,10 +319,37 @@ namespace WebScraper
                     }
 
                     // Get photo URL
-                    var photoUrls = c.Descendants("a");
-                    if (photoUrls != null && photoUrls.Count() > 0)
+                    var img = c.Descendants("img");
+                    if (img.Count() > 0)
                     {
-                        stamp.ImageUrl = photoUrls.First().Attributes["href"].Value;
+                        var photoUrls = c.Descendants("a");
+                        if (photoUrls != null && photoUrls.Count() > 0)
+                        {
+                            if (stamp.Id == 0)
+                            {
+                                var tmp = incompleteStamps?.Where(x => string.IsNullOrEmpty(x.ImageUrl)).First();
+                                if (tmp != null)
+                                {
+                                    stamp = tmp;
+                                }
+                            }
+
+                            stamp.ImageUrl = photoUrls.First().Attributes["href"].Value;
+                        }
+                        else
+                        {
+                            var tmp = incompleteStamps?.Where(x => string.IsNullOrEmpty(x.ImageUrl)).First();
+                            if (tmp != null)
+                            {
+                                stamp = tmp;
+                            }
+                            stamp.ImageUrl = img.First().Attributes["src"].Value;
+                        }
+
+                        if (stamp.ImageUrl.Contains("cpanel")) // no link
+                        {
+                            stamp.ImageUrl = img.First().Attributes["src"].Value;
+                        }
                     }
 
                     // Get value and extra note
@@ -336,9 +364,18 @@ namespace WebScraper
                     }
 
                     // Store the info
-                    if (stamp.Id > 0 && string.IsNullOrEmpty(stamp.ImageUrl) == false)
+                    if (stamp.Id > 0)
                     {
-                        result.Add(stamp);
+                        if (string.IsNullOrEmpty(stamp.ImageUrl)) // save for later
+                        {
+                            if (incompleteStamps == null)
+                                incompleteStamps = new List<Stamp>();
+
+                            incompleteStamps.Add(stamp);
+                        }
+
+                        if (result.Where(x => x.Id == stamp.Id).Count() == 0)
+                            result.Add(stamp);
                     }
                 }
             }
@@ -474,6 +511,8 @@ namespace WebScraper
                 {
                     Stamps = new List<Stamp>()
                 };
+
+                incompleteStamps = null;
 
                 _currentYear = 0;
             }
