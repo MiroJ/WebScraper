@@ -213,7 +213,7 @@ namespace WebScraper
                 if (elem.OriginalName == "table")
                 {
                     // Get photos and details of each stamp
-                    AddStampsFromTable(elem);
+                    AddStampsFromTableMethod1(elem);
 
                 }
                 else if (elem.OriginalName == "em")
@@ -258,9 +258,87 @@ namespace WebScraper
             _currentSeries.Comment = string.IsNullOrEmpty(_currentSeries.Comment) ? elem.InnerText : _currentSeries.Comment + "/n" + elem.InnerText;
         }
 
-        List<Stamp> incompleteStamps = null;
-        private void AddStampsFromTable(HtmlNode elem)
+        private void AddStampsFromTableMethod1(HtmlNode elem)
         {
+            var images = elem.Descendants("img");
+            var cells = elem.Descendants("td");
+
+            var cntImages = images.Count();
+            var cntCells = cells.Count();
+
+            if (cntCells % cntImages == 0 && cntCells / cntImages == 1) // call standard function
+            {
+                AddStampsFromTable2(elem);
+            }
+            else // assume the table is more granular
+            {
+                // Generate the stamps based on number of images
+                var result = new List<Stamp>();
+                foreach (var img in images)
+                {
+                    result.Add(new Stamp());
+                }
+
+                foreach (var c in cells)
+                {
+                    if (IsStampId(c.InnerText)) // Id
+                    {
+                        var stamp = result.Where(x => x.Id == 0).First();
+                        if (stamp != null)
+                        {
+                            stamp.Id = int.Parse(c.InnerText);
+                        }
+                    }
+                    else if (IsStampImage(c)) // ImageUrl
+                    {
+                        var stamp = result.Where(x => string.IsNullOrEmpty(x.ImageUrl)).First();
+                        if (stamp != null)
+                        {
+                            stamp.ImageUrl = GetStampImageUrl(c);
+                        }
+                    }
+                    else if (IsStampValue(c.InnerText)) // Value
+                    {
+                        var (value, notes) = GetStampValue(c.InnerText);
+                        if (value > 0)
+                        {
+                            var stamp = result.Where(x => x.Value == 0).First();
+                            if (stamp != null)
+                            {
+                                stamp.Value = value;
+                                stamp.ExtraNote = notes;
+                            }
+                        }
+                    }
+                }
+
+                _currentSeries.Stamps.AddRange(result);
+            }
+        }
+
+        private string GetStampImageUrl(HtmlNode elem)
+        {
+            string result = "";
+
+            var links = elem.Descendants("a");
+
+            if (links != null && links.Count() > 0)
+            {
+                result = links.First().Attributes["href"]?.Value;
+            }
+
+            if (string.IsNullOrEmpty(result) || result.Contains("cpanel"))
+            {
+                result = elem.Descendants("img").First().Attributes["src"]?.Value;
+            }
+
+            return result;
+        }
+
+        private void AddStampsFromTable2(HtmlNode elem)
+        {
+            List<Stamp> incompleteStamps = null;
+
             var cells = elem.Descendants("td");
 
             var result = new List<Stamp>();
@@ -393,14 +471,14 @@ namespace WebScraper
             }
             else if (elem.Descendants("img").Count() > 0) // alternative arrangement
             {
-                result = TryAlternativeTableArrangement(elem);
+                result = TryAlternativeCellArrangement(elem);
             }
 
 
             _currentSeries.Stamps.AddRange(result);
         }
 
-        private List<Stamp> TryAlternativeTableArrangement(HtmlNode elem)
+        private List<Stamp> TryAlternativeCellArrangement(HtmlNode elem)
         {
             var result = new List<Stamp>();
             var img = elem.Descendants("img").Count();
@@ -511,8 +589,6 @@ namespace WebScraper
                 {
                     Stamps = new List<Stamp>()
                 };
-
-                incompleteStamps = null;
 
                 _currentYear = 0;
             }
@@ -632,6 +708,33 @@ namespace WebScraper
             MatchCollection matches = rgx.Matches(text);
 
             return matches.Count > 0;
+        }
+
+        private bool IsStampId(string text)
+        {
+            var pattern = @"[0-9]{2,3}";
+
+            Regex rgx = new Regex(pattern, RegexOptions.IgnoreCase);
+
+            MatchCollection matches = rgx.Matches(text);
+
+            return matches.Count == 1 && matches.First().Index == 0;
+        }
+
+        private bool IsStampImage(HtmlNode elem)
+        {
+            return elem.Descendants("img").Count() == 1;
+        }
+
+        private bool IsStampValue(string text)
+        {
+            var pattern = @"\d\s(лв.|ст.|с.|фр.)";
+
+            Regex rgx = new Regex(pattern, RegexOptions.IgnoreCase);
+
+            MatchCollection matches = rgx.Matches(text.Trim());
+
+            return matches.Count > 0 && matches.First().Index == 0;
         }
 
         private int GetMonthFromBulgarianMonth(string text)
