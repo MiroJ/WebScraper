@@ -565,7 +565,7 @@ namespace WebScraper
                 month = month == 0 ? 1 : month;
                 _currentSeries.Date = new DateTime(year, month, day);
             }
-            catch (Exception ex)
+            catch
             {
                 return false;
             }

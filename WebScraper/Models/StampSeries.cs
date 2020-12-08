@@ -21,11 +21,11 @@ namespace WebScraper
         {
             get
             {
-                return string.IsNullOrEmpty(Title) == false
-                    || string.IsNullOrEmpty(Details) == false
-                    || string.IsNullOrEmpty(Comment) == false
-                    || string.IsNullOrEmpty(Quantities) == false
-                    || Stamps.Count > 0;
+                return string.IsNullOrEmpty(Title) == false || 
+                    string.IsNullOrEmpty(Details) == false || 
+                    string.IsNullOrEmpty(Comment) == false || 
+                    string.IsNullOrEmpty(Quantities) == false || 
+                    Stamps.Count > 0;
             }
         }
 
