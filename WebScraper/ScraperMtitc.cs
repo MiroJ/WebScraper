@@ -15,7 +15,7 @@ namespace WebScraper
         #region - Declarations -
 
         string _startUrl = @"https://www.mtitc.government.bg/bg/category/63/katalog-na-bulgarskite-poshtenski-marki-1879-2005-g";
-        string _fileWithURLs = @"D:\Temp\Catalog\URLs.json";
+        string _fileWithURLs = @"C:\Temp\URLs.json";
 
         StampSeries _currentSeries = new StampSeries
         {
@@ -25,7 +25,7 @@ namespace WebScraper
         int _currentYear = 0;
 
         List<StampSeries> database = new List<StampSeries>();
-        private string _exportFolder = @"D:\Temp\Catalog\";
+        private string _exportFolder = @"C:\Temp\Catalog\";
 
         #endregion
 
@@ -175,11 +175,14 @@ namespace WebScraper
             var mainUri = new Uri(url);
 
             var links = mainPageDom.SelectNodes("//div[@class='field-items']/div/p/a/strong/em");
-            foreach (var l in links)
+            if (links != null)
             {
-                var tmp = l.ParentNode.ParentNode.Attributes["href"].Value;
-                var uri = new Uri(mainUri, HttpUtility.HtmlDecode(tmp));
-                result.Add(uri.AbsoluteUri);
+                foreach (var l in links)
+                {
+                    var tmp = l.ParentNode.ParentNode.Attributes["href"].Value;
+                    var uri = new Uri(mainUri, HttpUtility.HtmlDecode(tmp));
+                    result.Add(uri.AbsoluteUri);
+                }
             }
 
             return result;
